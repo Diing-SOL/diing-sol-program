@@ -13,22 +13,30 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 pub mod diing {
     use super::*;
 
-    pub fn initialize_funds(
-        ctx: Context<InitializeFunds>,
+    pub fn initialize_state(
+        ctx: Context<InitializeState>,
         bump: u8,
         ciphertext: String,
-        amount: u64,
     ) -> Result<()> {
         let state = &mut ctx.accounts.application_state;
         state.ciphertext = ciphertext;
         state.user_sending = ctx.accounts.user_sending.key().clone();
+        Ok(())
+    }
+
+    pub fn initialize_funds(
+        ctx: Context<InitializeFunds>,
+        _state_bump: u8,
+        bump: u8,
+        amount: u64,
+    ) -> Result<()> {
+        let state = &mut ctx.accounts.application_state;
+        state.amount = amount;
         state.mint_of_token_being_sent = ctx.accounts.mint_of_token_being_sent.key().clone();
         state.escrow_wallet = ctx.accounts.escrow_wallet_state.key().clone();
-        state.amount = amount;
-
         msg!("Initialized new Safe Transfer instance for {}", amount);
 
-        let bump_vector = bump.to_le_bytes();
+        let bump_vector = _state_bump.to_le_bytes();
         let mint_of_token_being_sent_pk = ctx.accounts.mint_of_token_being_sent.key().clone();
         let inner = vec![
             b"state".as_ref(),
@@ -95,35 +103,8 @@ pub struct State {
 // ==================== Instructions ====================
 
 #[derive(Accounts)]
-#[instruction(instance_bump: u8, bump: u8)]
-pub struct Initialize<'info> {
-    #[account(
-        seeds=[b"instance".as_ref(), user.key.as_ref()],
-        bump = instance_bump,
-    )]
-    /// CHECK: This is not dangerous
-    instance: AccountInfo<'info>,
-    #[account(
-        init,
-        payer = user,
-        seeds=[b"wallet".as_ref(), user.key.as_ref(), mint.key().as_ref()],
-        bump,
-        token::mint = mint,
-        token::authority = instance,
-    )]
-    wallet: Account<'info, TokenAccount>,
-    #[account(mut)]
-    mint: Account<'info, Mint>,
-    #[account(mut)]
-    user: Signer<'info>,
-    system_program: Program<'info, System>,
-    token_program: Program<'info, Token>,
-    rent: Sysvar<'info, Rent>,
-}
-
-#[derive(Accounts)]
-#[instruction(bump: u8)]
-pub struct InitializeFunds<'info> {
+#[instruction(bump: u8, ciphertext: String)]
+pub struct InitializeState<'info> {
     // Derived PDAs
     #[account(
         init,
@@ -131,6 +112,24 @@ pub struct InitializeFunds<'info> {
         space = 8 + 8,
         seeds=[b"state".as_ref(), user_sending.key().as_ref(), mint_of_token_being_sent.key().as_ref()],
         bump,
+    )]
+    application_state: Account<'info, State>,
+    #[account(mut)]
+    user_sending: Signer<'info>, // Alice
+    mint_of_token_being_sent: Account<'info, Mint>, // USDC
+    system_program: Program<'info, System>,
+    token_program: Program<'info, Token>,
+    rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
+#[instruction(_state_bump: u8, bump: u8, amount: u64)]
+pub struct InitializeFunds<'info> {
+    // Derived PDAs
+    #[account(
+        mut,
+        seeds=[b"state".as_ref(), user_sending.key().as_ref(), mint_of_token_being_sent.key().as_ref()],
+        bump = _state_bump,
     )]
     application_state: Account<'info, State>,
     #[account(
